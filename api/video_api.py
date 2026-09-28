@@ -193,11 +193,11 @@ class VideoGenerator:
 
         # 模式专用媒体字段
         if api_mode == "keyframe":
-            payload["first_frame"] = self._single_video_image_value(input_images[0])
+            payload["first_frame"] = self._video_image_uri(input_images[0])
             if len(input_images) > 1:
-                payload["last_frame"] = self._single_video_image_value(input_images[-1])
+                payload["last_frame"] = self._video_image_uri(input_images[-1])
         elif api_mode == "reference":
-            payload["images"] = [self._single_video_image_value(img) for img in input_images]
+            payload["images"] = [self._video_image_uri(img) for img in input_images]
 
         # 官方 2.5 schema 不含 negative_prompt（发送会 400），此处不发送。
         return self._post_create(payload)
@@ -433,8 +433,17 @@ class VideoGenerator:
 
     @staticmethod
     def _single_video_image_value(image_payload: str) -> str:
+        # v2.0 legacy 的 image 字段：API 接受完整 data URI 或裸 base64，
+        # 这里保持剥壳为裸 base64（与该模型历史行为一致）。
         if image_payload.startswith("data:") and "," in image_payload:
             return image_payload.split(",", 1)[1]
+        return image_payload
+
+    @staticmethod
+    def _video_image_uri(image_payload: str) -> str:
+        # 2.5 系 reference/keyframe 模式的 images/first_frame/last_frame：
+        # 官方要求「公开可访问的 URL」，实测也接受完整 data URI（data:image/png;base64,...）。
+        # 剥壳成裸 base64 会导致服务端 internal_error，因此这里保留完整 data URI / URL。
         return image_payload
 
     @staticmethod

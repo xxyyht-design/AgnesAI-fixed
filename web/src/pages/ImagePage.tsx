@@ -29,6 +29,15 @@ const imageModelSizes: Record<string, { value: string; label: string }[]> = {
     { value: "2048x1152", label: "2048 x 1152 2K 横版" },
     { value: "2048x2048", label: "2048 x 2048 2K 方形" },
   ],
+  "agnes-image-2.5-flash": [
+    { value: "512x512", label: "512 x 512 方形" },
+    { value: "832x1248", label: "832 x 1248 竖版 (2:3)" },
+    { value: "1248x832", label: "1248 x 832 横版 (3:2)" },
+    { value: "1024x1024", label: "1024 x 1024 方形" },
+    { value: "1024x1536", label: "1024 x 1536 竖版 (2:3)" },
+    { value: "1536x1024", label: "1536 x 1024 横版 (3:2)" },
+    { value: "1248x1248", label: "1248 x 1248 方形" },
+  ],
 };
 
 function mergeImages(nextImages: ImageItem[], currentImages: ImageItem[]) {
@@ -41,12 +50,22 @@ function mergeImages(nextImages: ImageItem[], currentImages: ImageItem[]) {
   });
 }
 
+/** 读取图片真实宽高（用于图生图时自动匹配比例） */
+function loadImageSize(src: string): Promise<{ w: number; h: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => reject(new Error("参考图读取失败"));
+    img.src = src;
+  });
+}
+
 export function ImagePage() {
   const toast = useToast();
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
   const [model, setModel] = useState("agnes-image-2.1-flash");
-  const [size, setSize] = useState("1152x768");
+  const [size, setSize] = useState("auto");
   const [count, setCount] = useState("1");
   const [seed, setSeed] = useState("");
   const [references, setReferences] = useState<ReferenceImage[]>([]);
@@ -54,7 +73,10 @@ export function ImagePage() {
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<{ src: string; item?: ImageItem } | null>(null);
 
-  const sizes = useMemo(() => imageModelSizes[model] || imageModelSizes["agnes-image-2.1-flash"], [model]);
+  const sizes = useMemo(() => {
+    const modelSizes = imageModelSizes[model] || imageModelSizes["agnes-image-2.1-flash"];
+    return [{ value: "auto", label: "自动（跟随参考图比例）" }, ...modelSizes];
+  }, [model]);
 
   useEffect(() => {
     if (!sizes.some((item) => item.value === size)) {
@@ -75,6 +97,33 @@ export function ImagePage() {
     }
   }
 
+  async function resolveSize(): Promise<string> {
+    if (size !== "auto") return size;
+    const modelSizes = imageModelSizes[model] || imageModelSizes["agnes-image-2.1-flash"];
+    // 没有参考图：用模型默认尺寸
+    if (!references.length) return modelSizes[0]?.value || "1024x1024";
+    // 有参考图：读取第一张原图比例，选最接近的预设
+    try {
+      const { w, h } = await loadImageSize(references[0].value || references[0].src);
+      if (!w || !h) return modelSizes[0]?.value || "1024x1024";
+      const ratio = w / h;
+      let best = modelSizes[0];
+      let bestDiff = Infinity;
+      for (const item of modelSizes) {
+        const [iw, ih] = item.value.split("x").map(Number);
+        if (!iw || !ih) continue;
+        const diff = Math.abs(iw / ih - ratio);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          best = item;
+        }
+      }
+      return best?.value || "1024x1024";
+    } catch {
+      return modelSizes[0]?.value || "1024x1024";
+    }
+  }
+
   async function generateImages() {
     if (!prompt.trim()) {
       toast("请输入图片 Prompt", "error");
@@ -82,13 +131,14 @@ export function ImagePage() {
     }
     setLoading(true);
     try {
+      const finalSize = await resolveSize();
       const data = await apiJson<{ images: ImageItem[] }>("/api/image/generate", {
         method: "POST",
         body: JSON.stringify({
           prompt: prompt.trim(),
           negative_prompt: negativePrompt.trim(),
           model,
-          size,
+          size: finalSize,
           count: Number(count),
           seed: seed.trim(),
           input_images: references.map((item) => item.value).filter(Boolean),
@@ -155,6 +205,7 @@ export function ImagePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="agnes-image-2.5-flash">Agnes Image 2.5 Flash</SelectItem>
                   <SelectItem value="agnes-image-2.1-flash">Agnes Image 2.1 Flash</SelectItem>
                   <SelectItem value="agnes-image-2.0-flash">Agnes Image 2.0 Flash</SelectItem>
                 </SelectContent>

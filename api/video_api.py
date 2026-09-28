@@ -64,12 +64,21 @@ class VideoGenerator:
         image_path: str = "",
         image_paths: list[str] | None = None,
     ) -> VideoTask:
-        width, height = self._parse_resolution(resolution)
         input_images = [
             self._image_payload(path)
             for path in (image_paths or ([image_path] if image_path else []))
             if isinstance(path, str) and path.strip()
         ]
+        # 2.5 系使用独立 schema：只接受 mode + size，旧字段（width/height/
+        # num_frames/frame_rate/duration）全部 forbidden。
+        if model in ("agnes-video-2.5", "agnes-video-2.5-flash"):
+            return self._create_task_v25(
+                prompt=prompt,
+                model=model,
+                mode=mode,
+                input_images=input_images,
+            )
+        width, height = self._parse_resolution(resolution)
         payload: dict[str, Any] = {
             "model": model,
             "prompt": prompt,
@@ -94,6 +103,38 @@ class VideoGenerator:
             if mode == "keyframes":
                 extra_body["mode"] = "keyframes"
             payload["extra_body"] = extra_body
+
+        return self._post_create(payload)
+
+    def _create_task_v25(
+        self,
+        *,
+        prompt: str,
+        model: str,
+        mode: str,
+        input_images: list[str],
+    ) -> VideoTask:
+        """2.5 系视频 API：mode 必填，size 固定 720P，禁止宽高/帧数/帧率/时长字段。"""
+        api_mode = "text"
+        if mode == "image":
+            if not input_images:
+                raise AgnesAPIError("图生视频模式需要先上传图片。")
+            api_mode = "ti2vid"
+        elif mode in ("multi_image", "keyframes"):
+            if not input_images:
+                raise AgnesAPIError("多图视频模式需要先上传或选择参考图片。")
+            api_mode = "ti2vid"
+        payload: dict[str, Any] = {
+            "model": model,
+            "prompt": prompt,
+            "mode": api_mode,
+            "size": "720P",
+        }
+        if api_mode == "ti2vid":
+            payload["image"] = self._single_video_image_value(input_images[0])
+        return self._post_create(payload)
+
+    def _post_create(self, payload: dict[str, Any]) -> VideoTask:
 
         data = self.client.request("POST", "/videos", json_payload=payload, timeout=180)
         payload_data = data.get("data", data) if isinstance(data, dict) else {}

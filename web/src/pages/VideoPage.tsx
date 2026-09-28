@@ -104,6 +104,8 @@ export function VideoPage() {
   const [preview, setPreview] = useState<{ src: string; task?: VideoTask } | null>(null);
 
   const needsImage = mode !== "text";
+  // 2.5 系视频模型：API 固定 720P·5s，字段只认 mode+size，无分辨率/帧率/时长可选
+  const isV25Model = model === "agnes-video-2.5" || model === "agnes-video-2.5-flash";
   const activeTasks = useMemo(() => tasks.filter((task) => isVideoStatusActive(task.status)), [tasks]);
   const queueTasks = useMemo(
     () =>
@@ -143,6 +145,13 @@ export function VideoPage() {
   useEffect(() => {
     if (!needsImage && references.length) setReferences([]);
   }, [needsImage, references.length]);
+
+  // 2.5 系模型只支持文生视频/图生视频单图，切到 2.5 时把多图/关键帧模式回退
+  useEffect(() => {
+    if (isV25Model && (mode === "multi_image" || mode === "keyframes")) {
+      setMode("text");
+    }
+  }, [isV25Model, mode]);
 
   useEffect(() => {
     if (!resolutionOptions.some((item) => item.value === resolution)) {
@@ -262,8 +271,12 @@ export function VideoPage() {
               <SelectContent>
                 <SelectItem value="text">文生视频</SelectItem>
                 <SelectItem value="image">图生视频</SelectItem>
-                <SelectItem value="multi_image">多图视频</SelectItem>
-                <SelectItem value="keyframes">关键帧动画</SelectItem>
+                {!isV25Model && (
+                  <>
+                    <SelectItem value="multi_image">多图视频</SelectItem>
+                    <SelectItem value="keyframes">关键帧动画</SelectItem>
+                  </>
+                )}
               </SelectContent>
             </Select>
           </Field>
@@ -295,8 +308,16 @@ export function VideoPage() {
               className="min-h-[72px]"
             />
           </Field>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="画面比例与分辨率" className="sm:col-span-3">
+          {isV25Model ? (
+            <div className="space-y-2 rounded-lg border bg-muted/30 p-3 text-sm">
+              <div className="font-semibold text-foreground">2.5 系列模型固定规格</div>
+              <div className="text-muted-foreground">
+                分辨率 720P · 时长 5 秒（API 不支持自定义分辨率/帧率/时长）
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Field label="画面比例与分辨率" className="sm:col-span-3">
               <div className="space-y-3 rounded-lg border bg-background p-3">
                 <div className="grid grid-cols-3 gap-2">
                   {videoRatioOrder.map((item) => {
@@ -382,7 +403,8 @@ export function VideoPage() {
                 </div>
               </div>
             </Field>
-          </div>
+            </div>
+          )}
 
           {needsImage ? (
             <UploadDropzone

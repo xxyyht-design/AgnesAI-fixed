@@ -550,10 +550,12 @@ export function ChatPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="agnes-2.0-flash">agnes-2.0-flash</SelectItem>
-                  <SelectItem value="agnes-2.5-flash">agnes-2.5-flash</SelectItem>
+                  <SelectItem value="agnes-3.0-flash">agnes-3.0-flash</SelectItem>
                   <SelectItem value="agnes-2.5-pro">agnes-2.5-pro</SelectItem>
                   <SelectItem value="agnes-2.5-pro-alpha">agnes-2.5-pro-alpha</SelectItem>
+                  <SelectItem value="agnes-2.5-pro-beta">agnes-2.5-pro-beta</SelectItem>
+                  <SelectItem value="agnes-2.5-flash">agnes-2.5-flash</SelectItem>
+                  <SelectItem value="agnes-2.0-flash">agnes-2.0-flash</SelectItem>
                 </SelectContent>
               </Select>
             </Field>

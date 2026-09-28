@@ -30,38 +30,48 @@ const videoResolutionGroups: Record<
 > = {
   landscape: {
     label: "横屏",
-    detail: "6 个规格",
+    detail: "10 个规格",
     icon: RectangleHorizontal,
     resolutions: [
       { value: "1152x768", label: "1152 x 768", quality: "3:2 默认" },
       { value: "1536x1024", label: "1536 x 1024", quality: "3:2 高" },
       { value: "1280x720", label: "1280 x 720", quality: "16:9 720p" },
       { value: "1920x1088", label: "1920 x 1088", quality: "16:9 1080p" },
+      { value: "2560x1440", label: "2560 x 1440", quality: "16:9 2K" },
       { value: "1024x768", label: "1024 x 768", quality: "4:3 标准" },
       { value: "1408x1056", label: "1408 x 1056", quality: "4:3 高" },
+      { value: "2048x1536", label: "2048 x 1536", quality: "4:3 2K 级" },
+      { value: "1440x960", label: "1440 x 960", quality: "3:2 2K 级" },
+      { value: "2688x1536", label: "2688 x 1536", quality: "16:9 高清" },
     ],
   },
   portrait: {
     label: "竖屏",
-    detail: "6 个规格",
+    detail: "10 个规格",
     icon: RectangleVertical,
     resolutions: [
       { value: "768x1152", label: "768 x 1152", quality: "2:3 默认" },
       { value: "1024x1536", label: "1024 x 1536", quality: "2:3 高" },
       { value: "720x1280", label: "720 x 1280", quality: "9:16 720p" },
       { value: "1088x1920", label: "1088 x 1920", quality: "9:16 1080p" },
+      { value: "1440x2560", label: "1440 x 2560", quality: "9:16 2K" },
       { value: "768x1024", label: "768 x 1024", quality: "3:4 标准" },
       { value: "1056x1408", label: "1056 x 1408", quality: "3:4 高" },
+      { value: "1536x2048", label: "1536 x 2048", quality: "3:4 2K 级" },
+      { value: "960x1440", label: "960 x 1440", quality: "2:3 2K 级" },
+      { value: "1536x2688", label: "1536 x 2688", quality: "9:16 高清" },
     ],
   },
   square: {
     label: "方形",
-    detail: "3 个规格",
+    detail: "6 个规格",
     icon: Square,
     resolutions: [
       { value: "512x512", label: "512 x 512", quality: "轻量" },
       { value: "768x768", label: "768 x 768", quality: "标准" },
       { value: "1024x1024", label: "1024 x 1024", quality: "高" },
+      { value: "1536x1536", label: "1536 x 1536", quality: "2K 级" },
+      { value: "2048x2048", label: "2048 x 2048", quality: "2K" },
     ],
   },
 };
@@ -79,6 +89,7 @@ function statusBadge(status: string) {
 export function VideoPage() {
   const toast = useToast();
   const [mode, setMode] = useState<VideoMode>("text");
+  const [model, setModel] = useState("agnes-video-v2.0");
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
   const [ratio, setRatio] = useState<VideoRatio>("landscape");
@@ -164,7 +175,7 @@ export function VideoPage() {
         body: JSON.stringify({
           prompt: prompt.trim(),
           negative_prompt: negativePrompt.trim(),
-          model: "agnes-video-v2.0",
+          model,
           mode,
           resolution,
           fps: Number(fps),
@@ -253,6 +264,18 @@ export function VideoPage() {
                 <SelectItem value="image">图生视频</SelectItem>
                 <SelectItem value="multi_image">多图视频</SelectItem>
                 <SelectItem value="keyframes">关键帧动画</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="模型">
+            <Select value={model} onValueChange={setModel}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="agnes-video-2.5-flash">Agnes Video 2.5 Flash</SelectItem>
+                <SelectItem value="agnes-video-2.5">Agnes Video 2.5</SelectItem>
+                <SelectItem value="agnes-video-v2.0">Agnes Video 2.0</SelectItem>
               </SelectContent>
             </Select>
           </Field>

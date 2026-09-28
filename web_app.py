@@ -126,6 +126,9 @@ class VideoCreateRequest(BaseModel):
     duration_seconds: int = 5
     image_base64: str = ""
     image_inputs: list[str] = Field(default_factory=list)
+    # 2.5 系专用：画幅比例（21:9/16:9/4:3/1:1/3:4/9:16）与分辨率档位（720P/1080P/1K/2K）
+    aspect_ratio: str = ""
+    size_tier: str = ""
 
 class DownloadRequest(BaseModel):
     url: str
@@ -490,6 +493,8 @@ def create_video_task(body: VideoCreateRequest):
             model=body.model,
             mode=body.mode,
             resolution=body.resolution,
+            aspect_ratio=body.aspect_ratio,
+            size_tier=body.size_tier,
             fps=body.fps,
             duration_seconds=body.duration_seconds,
             image_path=image_inputs[0] if body.mode == "image" and image_inputs else "",

@@ -279,8 +279,14 @@ class AgnesClient:
             pass
 
         lower = str(message).lower()
+        raw_code = ""
+        if isinstance(raw, dict):
+            raw_code = str(raw.get("code") or raw.get("error", {}).get("code", "") if isinstance(raw.get("error"), dict) else (raw.get("code") or ""))
+        lower_code = raw_code.lower()
         if status == 401:
             message = f"401 鉴权失败：{message}"
+        elif status == 403 and any(word in lower_code for word in ("quota", "balance", "credit", "余额")):
+            message = f"API 余额不足或额度已用尽：{message}"
         elif status == 403:
             message = "403 无权限：账号或模型权限不足。"
         elif status == 429:

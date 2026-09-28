@@ -59,6 +59,8 @@ class VideoGenerator:
         model: str = "agnes-video-v2.0",
         mode: str = "text",
         resolution: str = "1152x768",
+        aspect_ratio: str = "",
+        size_tier: str = "",
         fps: int = 24,
         duration_seconds: int = 5,
         image_path: str = "",
@@ -69,13 +71,18 @@ class VideoGenerator:
             for path in (image_paths or ([image_path] if image_path else []))
             if isinstance(path, str) and path.strip()
         ]
-        # 2.5 系使用独立 schema：只接受 mode + size，旧字段（width/height/
-        # num_frames/frame_rate/duration）全部 forbidden。
+        # 2.5 系使用独立 schema：只接受 mode + seconds + size + aspect_ratio，
+        # 旧字段（width/height/num_frames/frame_rate/duration）全部 forbidden。
         if model in ("agnes-video-2.5", "agnes-video-2.5-flash"):
             return self._create_task_v25(
                 prompt=prompt,
+                negative_prompt=negative_prompt,
                 model=model,
                 mode=mode,
+                resolution=resolution,
+                aspect_ratio=aspect_ratio,
+                size_tier=size_tier,
+                duration_seconds=duration_seconds,
                 input_images=input_images,
             )
         width, height = self._parse_resolution(resolution)
@@ -110,29 +117,124 @@ class VideoGenerator:
         self,
         *,
         prompt: str,
+        negative_prompt: str = "",
         model: str,
         mode: str,
+        resolution: str = "1152x768",
+        aspect_ratio: str = "",
+        size_tier: str = "",
+        duration_seconds: int = 5,
         input_images: list[str],
     ) -> VideoTask:
-        """2.5 系视频 API：mode 必填，size 固定 720P，禁止宽高/帧数/帧率/时长字段。"""
+        """2.5 系视频 API（官方 schema）：
+        mode: text | keyframe | reference（必填）
+        seconds: "4"–"12"（字符串，默认 "5"）
+        size: 720P / 1080P / 1K / 2K（Flash 仅 720P）
+        aspect_ratio: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16（默认 16:9）
+        keyframe 模式: first_frame / last_frame；reference 模式: images / audios / videos
+        width/height/fps/num_frames/quality 等字段全部 400 拒绝。
+        """
+        is_flash = model == "agnes-video-2.5-flash"
+        # mode 映射：text→text；image/multi_image→reference（图片参考）；
+        # keyframes→keyframe（首尾帧）
         api_mode = "text"
-        if mode == "image":
+        if mode in ("image", "multi_image"):
             if not input_images:
-                raise AgnesAPIError("图生视频模式需要先上传图片。")
-            api_mode = "ti2vid"
-        elif mode in ("multi_image", "keyframes"):
+                raise AgnesAPIError("图生视频模式需要先上传参考图片。")
+            api_mode = "reference"
+        elif mode == "keyframes":
             if not input_images:
-                raise AgnesAPIError("多图视频模式需要先上传或选择参考图片。")
-            api_mode = "ti2vid"
+                raise AgnesAPIError("关键帧动画至少需要 1 张参考图片。")
+            api_mode = "keyframe"
+
         payload: dict[str, Any] = {
             "model": model,
             "prompt": prompt,
             "mode": api_mode,
-            "size": "720P",
         }
-        if api_mode == "ti2vid":
-            payload["image"] = self._single_video_image_value(input_images[0])
+
+        # seconds：字符串 "4"–"12"，默认 "5"
+        seconds = max(4, min(12, int(duration_seconds or 5)))
+        payload["seconds"] = str(seconds)
+
+        # size：Flash 固定 720P；2.5 支持 720P/1080P/1K/2K。
+        # 优先用前端显式传入的 size_tier；否则从 resolution 解析。
+        size_candidates = ["720P", "1080P", "1K", "2K"]
+        size_tier_upper = (size_tier or "").upper().strip()
+        resolution_upper = (resolution or "").upper().strip()
+        if size_tier_upper in size_candidates:
+            size = size_tier_upper
+        elif resolution_upper in size_candidates:
+            size = resolution_upper
+        elif "x" in resolution_upper:
+            w, _, _h = resolution_upper.partition("X")
+            try:
+                width_px = int(w.strip())
+            except ValueError:
+                width_px = 0
+            if width_px >= 1920:
+                size = "1080P"
+            elif width_px > 1024:
+                size = "720P"
+            elif width_px == 1024:
+                size = "1K"
+            else:
+                size = "720P"
+        else:
+            size = "720P"
+        if is_flash:
+            size = "720P"
+        payload["size"] = size
+
+        # aspect_ratio：优先前端显式传入；否则从 resolution 的 WxH 推算，默认 16:9
+        payload["aspect_ratio"] = (
+            (aspect_ratio or "").strip() or self._aspect_ratio_from_resolution(resolution)
+        )
+
+        # 模式专用媒体字段
+        if api_mode == "keyframe":
+            payload["first_frame"] = self._single_video_image_value(input_images[0])
+            if len(input_images) > 1:
+                payload["last_frame"] = self._single_video_image_value(input_images[-1])
+        elif api_mode == "reference":
+            payload["images"] = [self._single_video_image_value(img) for img in input_images]
+
+        # 官方 2.5 schema 不含 negative_prompt（发送会 400），此处不发送。
         return self._post_create(payload)
+
+    @staticmethod
+    def _aspect_ratio_from_resolution(resolution: str) -> str:
+        """从 WIDTHxHEIGHT 推算最接近的画幅比例（2.5 系用 aspect_ratio，不认像素尺寸）。"""
+        upper = (resolution or "").upper().strip()
+        known = {
+            "21:9": "21:9", "16:9": "16:9", "4:3": "4:3",
+            "1:1": "1:1", "3:4": "3:4", "9:16": "9:16", "3:2": "16:9",
+        }
+        if upper in known:
+            return known[upper]
+        if "X" not in upper:
+            return "16:9"
+        try:
+            w, h = (int(x) for x in upper.split("X", 1))
+        except ValueError:
+            return "16:9"
+        if w == h:
+            return "1:1"
+        if w > h:
+            ratio = w / h
+            if ratio >= 1.9:
+                return "21:9"
+            if ratio >= 1.7:
+                return "16:9"
+            if ratio >= 1.3:
+                return "4:3"
+            return "16:9"
+        ratio = h / w
+        if ratio >= 1.9:
+            return "9:16"
+        if ratio >= 1.3:
+            return "3:4"
+        return "9:16"
 
     def _post_create(self, payload: dict[str, Any]) -> VideoTask:
 

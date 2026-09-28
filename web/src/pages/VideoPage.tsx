@@ -19,6 +19,22 @@ type VideoRatio = "landscape" | "portrait" | "square";
 
 const durationPresets = [5, 8, 10, 12, 15, 18];
 
+// 2.5 系：画幅比例（aspect_ratio）与分辨率档位（size），不使用 WxH 像素尺寸
+const v25AspectRatios: { value: string; label: string }[] = [
+  { value: "16:9", label: "16:9 横屏" },
+  { value: "21:9", label: "21:9 超宽" },
+  { value: "4:3", label: "4:3 标准" },
+  { value: "1:1", label: "1:1 方形" },
+  { value: "3:4", label: "3:4 竖版" },
+  { value: "9:16", label: "9:16 竖屏" },
+];
+const v25SizeTiers: { value: string; label: string; note: string }[] = [
+  { value: "720P", label: "720P", note: "标准" },
+  { value: "1080P", label: "1080P", note: "高清" },
+  { value: "1K", label: "1K", note: "1024×1024" },
+  { value: "2K", label: "2K", note: "最高" },
+];
+
 const videoResolutionGroups: Record<
   VideoRatio,
   {
@@ -96,6 +112,9 @@ export function VideoPage() {
   const [resolution, setResolution] = useState("1152x768");
   const [fps, setFps] = useState("24");
   const [duration, setDuration] = useState("5");
+  // 2.5 系专用：画幅比例 + 分辨率档位（替代 WxH resolution）
+  const [aspectRatio, setAspectRatio] = useState("16:9");
+  const [sizeTier, setSizeTier] = useState("720P");
   const [references, setReferences] = useState<ReferenceImage[]>([]);
   const [tasks, setTasks] = useState<VideoTask[]>([]);
   const [loading, setLoading] = useState(false);
@@ -104,8 +123,9 @@ export function VideoPage() {
   const [preview, setPreview] = useState<{ src: string; task?: VideoTask } | null>(null);
 
   const needsImage = mode !== "text";
-  // 2.5 系视频模型：API 固定 720P·5s，字段只认 mode+size，无分辨率/帧率/时长可选
+  // 2.5 系视频模型：API 用 mode+seconds+size+aspect_ratio（无 WxH/帧率/时长自定义）
   const isV25Model = model === "agnes-video-2.5" || model === "agnes-video-2.5-flash";
+  const isV25Flash = model === "agnes-video-2.5-flash";
   const activeTasks = useMemo(() => tasks.filter((task) => isVideoStatusActive(task.status)), [tasks]);
   const queueTasks = useMemo(
     () =>
@@ -123,6 +143,15 @@ export function VideoPage() {
   const resolutionOptions = videoResolutionGroups[ratio].resolutions;
   const durationSeconds = Math.max(5, Math.min(18, Number(duration) || 5));
   const durationFrames = durationSeconds * Number(fps || 24) + 1;
+  // 2.5 系：官方 seconds 允许 4–12（字符串），duration 用 v25 范围约束
+  const v25Duration = Math.max(4, Math.min(12, Number(duration) || 5));
+  // 2.5 收费档位秒单价（美元/秒）；Flash 免费
+  const v25SizePrice: Record<string, string> = {
+    "720P": "$0.025/s",
+    "1080P": "$0.040/s",
+    "1K": "$0.040/s",
+    "2K": "$0.055/s",
+  };
 
   const loadTasks = useCallback(async (poll = false) => {
     const endpoint = poll ? "/api/video/poll-all" : "/api/video/tasks";
@@ -189,6 +218,9 @@ export function VideoPage() {
           resolution,
           fps: Number(fps),
           duration_seconds: Number(duration),
+          // 2.5 系专用字段：画幅比例 + 分辨率档位（后端在 v25 分支优先使用）
+          aspect_ratio: isV25Model ? aspectRatio : "",
+          size_tier: isV25Model ? sizeTier : "",
           image_base64: references[0]?.value || "",
           image_inputs: references.map((item) => item.value).filter(Boolean),
         }),
@@ -309,11 +341,92 @@ export function VideoPage() {
             />
           </Field>
           {isV25Model ? (
-            <div className="space-y-2 rounded-lg border bg-muted/30 p-3 text-sm">
-              <div className="font-semibold text-foreground">2.5 系列模型固定规格</div>
-              <div className="text-muted-foreground">
-                分辨率 720P · 时长 5 秒（API 不支持自定义分辨率/帧率/时长）
-              </div>
+            <div className="space-y-3">
+              {/* 2.5 画幅比例 */}
+              <Field label="画幅比例 (Aspect Ratio)" className="sm:col-span-3">
+                <Select value={aspectRatio} onValueChange={setAspectRatio}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {v25AspectRatios.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              {/* 2.5 分辨率档位（Flash 免费固定 720P；2.5 收费可选档位） */}
+              <Field
+                label={isV25Flash ? "分辨率档位" : "分辨率档位 · 按秒计费"}
+                className="sm:col-span-3"
+              >
+                <Select
+                  value={sizeTier}
+                  onValueChange={(value) => {
+                    setSizeTier(value);
+                    if (isV25Flash) setSizeTier("720P");
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {isV25Flash ? (
+                      <SelectItem value="720P">
+                        720P · 免费（Flash 固定）
+                      </SelectItem>
+                    ) : (
+                      v25SizeTiers.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                          {item.label} · {item.note} · {v25SizePrice[item.value]}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </Field>
+              {/* 2.5 时长（官方 4–12 秒，默认 5） */}
+              <Field label="时长" className="sm:col-span-3">
+                <div className="rounded-lg border bg-background p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="text-2xl font-bold leading-none text-primary">{v25Duration}s</div>
+                    {isV25Flash ? (
+                      <div className="rounded-md bg-emerald-500/15 px-2 py-1 text-xs font-semibold text-emerald-500">免费</div>
+                    ) : (
+                      <div className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+                        约 ${(v25Duration * parseFloat(v25SizePrice[sizeTier].replace("$", ""))).toFixed(2)}
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    aria-label="视频时长"
+                    className="duration-range"
+                    type="range"
+                    min={4}
+                    max={12}
+                    step={1}
+                    value={v25Duration}
+                    onChange={(event) => setDuration(event.target.value)}
+                  />
+                  <div className="mt-3 grid grid-cols-5 gap-1">
+                    {[4, 5, 8, 10, 12].map((seconds) => (
+                      <button
+                        key={seconds}
+                        type="button"
+                        className={[
+                          "h-7 rounded-md border text-xs font-semibold transition",
+                          v25Duration === seconds ? "border-primary bg-primary text-primary-foreground" : "bg-background hover:border-primary/60 hover:bg-muted",
+                        ].join(" ")}
+                        onClick={() => setDuration(String(seconds))}
+                      >
+                        {seconds}s
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </Field>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
